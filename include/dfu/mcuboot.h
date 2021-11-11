@@ -65,7 +65,11 @@ extern "C" {
 #define BOOT_IMG_VER_STRLEN_MAX 25  /* 255.255.65535.4294967295\0 */
 
 /* Trailer: */
+#ifdef CONFIG_SOC_SERIES_STM32H7X // or #if (DT_PROP(DT_CHOSEN(zephyr_flash), write_block_size) > 8)
+#define BOOT_MAX_ALIGN		32
+#else
 #define BOOT_MAX_ALIGN		8
+#endif
 #ifndef BOOT_MAGIC_SZ
 #define BOOT_MAGIC_SZ		16
 #endif
