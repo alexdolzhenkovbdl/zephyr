@@ -16,6 +16,8 @@ LOG_MODULE_REGISTER(ssd1306, CONFIG_DISPLAY_LOG_LEVEL);
 #include <drivers/i2c.h>
 #include <drivers/spi.h>
 
+#include <stm32_ll_spi.h> // for LL_SPI_EnableIOSwap()
+
 #include "ssd1306_regs.h"
 #include <display/cfb.h>
 
@@ -47,12 +49,18 @@ LOG_MODULE_REGISTER(ssd1306, CONFIG_DISPLAY_LOG_LEVEL);
 #define SSD1306_ADDRESSING_MODE		(SSD1306_SET_MEM_ADDRESSING_HORIZONTAL)
 #endif
 
+#define CONFIG_SSD1306_3_WIRE_SPI_MODE
+//#define CONFIG_SSD1306_4_WIRE_SPI_MODE
+#define CONFIG_SSD1306_IO_SWAP_FIX
+
 struct ssd1306_config {
 #if DT_INST_ON_BUS(0, i2c)
 	struct i2c_dt_spec bus;
 #elif DT_INST_ON_BUS(0, spi)
 	struct spi_dt_spec bus;
+#ifdef CONFIG_SSD1306_4_WIRE_SPI_MODE
 	struct gpio_dt_spec data_cmd;
+#endif
 #endif
 	struct gpio_dt_spec reset;
 };
@@ -88,9 +96,11 @@ static inline bool ssd1306_bus_ready(const struct device *dev)
 {
 	const struct ssd1306_config *config = dev->config;
 
+#ifdef CONFIG_SSD1306_4_WIRE_SPI_MODE
 	if (gpio_pin_configure_dt(&config->data_cmd, GPIO_OUTPUT_INACTIVE) < 0) {
 		return false;
 	}
+#endif
 
 	return spi_is_ready(&config->bus);
 }
@@ -101,11 +111,24 @@ static inline int ssd1306_write_bus(const struct device *dev,
 	const struct ssd1306_config *config = dev->config;
 	int errno;
 
+#ifdef CONFIG_SSD1306_4_WIRE_SPI_MODE
 	gpio_pin_set_dt(&config->data_cmd, command ? 0 : 1);
 	struct spi_buf tx_buf = {
 		.buf = buf,
 		.len = len
 	};
+#else // CONFIG_SSD1306_3_WIRE_SPI_MODE
+	uint16_t actual_buf[len];
+	const uint16_t dc = (command ? 0 : 1);
+	for (size_t idx = 0; idx < len; idx++) {
+		actual_buf[idx] = (dc << 8) | buf[idx];
+	}
+
+	struct spi_buf tx_buf = {
+		.buf = actual_buf,
+		.len = len
+	};
+#endif
 
 	struct spi_buf_set tx_bufs = {
 		.buffers = &tx_buf,
@@ -417,6 +440,11 @@ static int ssd1306_init(const struct device *dev)
 		}
 	}
 
+#ifdef CONFIG_SSD1306_IO_SWAP_FIX
+	// Bugfix #74: Swap MOSI and MISO pins for SPI2 bus to get it working.
+	LL_SPI_EnableIOSwap(SPI2);
+#endif
+
 	if (ssd1306_init_device(dev)) {
 		LOG_ERR("Failed to initialize device!");
 		return -EIO;
@@ -428,11 +456,15 @@ static int ssd1306_init(const struct device *dev)
 static const struct ssd1306_config ssd1306_config = {
 #if DT_INST_ON_BUS(0, i2c)
 	.bus = I2C_DT_SPEC_INST_GET(0),
-#elif DT_INST_ON_BUS(0, spi)
+#elif DT_INST_ON_BUS(0, spi) && defined(CONFIG_SSD1306_4_WIRE_SPI_MODE)
 	.bus = SPI_DT_SPEC_INST_GET(
 		0, SPI_OP_MODE_MASTER | SPI_TRANSFER_MSB |
 		SPI_WORD_SET(8) | SPI_LINES_SINGLE, 0),
 	.data_cmd = GPIO_DT_SPEC_INST_GET(0, data_cmd_gpios),
+#elif DT_INST_ON_BUS(0, spi) && defined(CONFIG_SSD1306_3_WIRE_SPI_MODE)
+	.bus = SPI_DT_SPEC_INST_GET(
+		0, SPI_OP_MODE_MASTER | SPI_TRANSFER_MSB |
+		SPI_WORD_SET(9) | SPI_LINES_SINGLE, 0),
 #endif
 	.reset = GPIO_DT_SPEC_INST_GET_OR(0, reset_gpios, { 0 })
 };

@@ -473,6 +473,7 @@ static int spi_stm32_configure(const struct device *dev,
 	}
 
 	if ((SPI_WORD_SIZE_GET(config->operation) != 8)
+	    && (SPI_WORD_SIZE_GET(config->operation) != 9)
 	    && (SPI_WORD_SIZE_GET(config->operation) != 16)) {
 		return -ENOTSUP;
 	}
@@ -549,6 +550,8 @@ static int spi_stm32_configure(const struct device *dev,
 
 	if (SPI_WORD_SIZE_GET(config->operation) ==  8) {
 		LL_SPI_SetDataWidth(spi, LL_SPI_DATAWIDTH_8BIT);
+	} else if (SPI_WORD_SIZE_GET(config->operation) ==  9) {
+		LL_SPI_SetDataWidth(spi, LL_SPI_DATAWIDTH_9BIT);
 	} else {
 		LL_SPI_SetDataWidth(spi, LL_SPI_DATAWIDTH_16BIT);
 	}
